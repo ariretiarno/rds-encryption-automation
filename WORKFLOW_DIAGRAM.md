@@ -57,7 +57,7 @@
     ┌──────────────┐                                       ┌──────────────┐
     │ Encrypted    │                                       │  Unencrypted │
     │ RDS Database │                                       │ RDS Database │
-    │  (Old/Idle)  │                                       │   (Active)   │
+    │  (Active)    │                                       │    (Old)     │
     └──────────────┘                                       └──────────────┘
          (Can be deleted after verification)
 ```
