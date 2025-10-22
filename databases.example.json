@@ -1,0 +1,48 @@
+{
+  "_comment": "Example configuration file - Copy to databases.json and update with your values",
+  "databases": [
+    {
+      "database": "myapp_production",
+      "publication_name": "myapp_prod_encryption_pub",
+      "slot_name": "myapp_prod_encryption_slot",
+      "source": {
+        "host": "unencrypted-db-1.xxxxx.us-east-1.rds.amazonaws.com",
+        "port": 5432,
+        "database": "myapp_production",
+        "user": "postgres",
+        "password": "REPLACE_WITH_YOUR_PASSWORD"
+      },
+      "target": {
+        "host": "encrypted-db-1.xxxxx.us-east-1.rds.amazonaws.com",
+        "port": 5432,
+        "database": "myapp_production",
+        "user": "postgres",
+        "password": "REPLACE_WITH_YOUR_PASSWORD",
+        "db_identifier": "encrypted-db-1"
+      },
+      "tables": null,
+      "_tables_comment": "Set to null for ALL TABLES, or specify array like ['users', 'orders', 'payments']"
+    },
+    {
+      "database": "analytics_db",
+      "publication_name": "analytics_encryption_pub",
+      "slot_name": "analytics_encryption_slot",
+      "source": {
+        "host": "unencrypted-db-2.xxxxx.us-east-1.rds.amazonaws.com",
+        "port": 5432,
+        "database": "analytics_db",
+        "user": "postgres",
+        "password": "REPLACE_WITH_YOUR_PASSWORD"
+      },
+      "target": {
+        "host": "encrypted-db-2.xxxxx.us-east-1.rds.amazonaws.com",
+        "port": 5432,
+        "database": "analytics_db",
+        "user": "postgres",
+        "password": "REPLACE_WITH_YOUR_PASSWORD",
+        "db_identifier": "encrypted-db-2"
+      },
+      "tables": null
+    }
+  ]
+}

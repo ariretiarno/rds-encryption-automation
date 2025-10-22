@@ -1,0 +1,9 @@
+evm_cli_version: 0.0.43
+internal_tools:
+    grafana-internal: Grafana
+    verdaccio: NPM Verdaccio
+notif_publisher_url: http://evm-notif-publisher.prod.internal
+notification_provider: googlechat
+password: !!binary mgM5srEGx1tF8NyGYi/bEqBpAixj/cMAKWvq9xe4rA==
+reliev_base_url: http://reliev.prod.internal
+username: das@ds.com
