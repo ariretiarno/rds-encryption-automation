@@ -55,7 +55,7 @@
            │ Read/Write (Switched)
            ▼
     ┌──────────────┐                                       ┌──────────────┐
-    │ Unencrypted  │                                       │  Encrypted   │
+    │ Encrypted    │                                       │  Unencrypted │
     │ RDS Database │                                       │ RDS Database │
     │  (Old/Idle)  │                                       │   (Active)   │
     └──────────────┘                                       └──────────────┘
