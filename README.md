@@ -1,445 +1,337 @@
-# RDS PostgreSQL Encryption Migration Automation
+# RDS Replication Automation
 
-Automate the database-side operations for encrypting Amazon RDS PostgreSQL instances with minimal downtime using logical replication.
+Automation scripts for managing PostgreSQL publications, replication slots, and subscriptions for RDS encryption with minimal downtime.
 
-This tool is based on the AWS guide: [Encrypt Amazon RDS for PostgreSQL and Amazon Aurora PostgreSQL database with minimal downtime](https://aws.amazon.com/blogs/database/encrypt-amazon-rds-for-postgresql-and-amazon-aurora-postgresql-database-with-minimal-downtime/)
+Based on: [AWS Blog - Encrypt Amazon RDS for PostgreSQL and Amazon Aurora PostgreSQL database with minimal downtime](https://aws.amazon.com/blogs/database/encrypt-amazon-rds-for-postgresql-and-amazon-aurora-postgresql-database-with-minimal-downtime/)
 
-## Overview
+## Features
 
-This automation script handles the PostgreSQL logical replication setup for multiple database instances, allowing you to:
+### Publications & Replication Slots (`manage_publications.py`)
+- ✅ Automatically create publications for multiple databases on MASTER DB
+- ✅ Automatically create replication slots for multiple databases on MASTER DB
+- ✅ Automatically delete publications and replication slots
+- ✅ List all publications and replication slots
 
-- ✅ Create publications on source (unencrypted) databases
-- ✅ Create replication slots on source databases
-- ✅ Create subscriptions on target (encrypted) databases
-- ✅ Advance replication origins to specific LSN
-- ✅ Enable and verify replication
-- ✅ Clean up replication after migration
-- ✅ Process multiple databases in batch
+### Subscriptions (`manage_subscriptions.py`)
+- ✅ Automatically create subscriptions for multiple databases on REPLICATION DB
+- ✅ Automatically delete subscriptions for multiple databases
+- ✅ List all subscriptions in databases
+- ✅ Automatic LSN advancement for replication origins
 
-**Note:** AWS infrastructure operations (creating snapshots, restoring encrypted databases, modifying parameter groups) must be done manually through AWS Console or CLI.
+### Common Features
+- ✅ Handle special characters in database names (converts to underscore)
+- ✅ Configurable via `.env` file
+- ✅ Comprehensive logging and error handling
 
 ## Prerequisites
 
-### 1. Python Environment
-- Python 3.7 or higher
-- Install dependencies: `pip install -r requirements.txt`
-
-### 2. AWS RDS Configuration
-
-Before running this script, you must:
-
-1. **Create a custom parameter group** with `rds.logical_replication = 1`
-2. **Attach the parameter group** to both source and target databases
-3. **Reboot the databases** to apply the parameter changes
-
-### 3. Network Access
-- Ensure the machine running this script can connect to both source and target RDS instances
-- Configure security groups to allow PostgreSQL connections (port 5432)
+- Python 3.7+
+- PostgreSQL database with logical replication enabled
+- Network access to both source and target databases
 
 ## Installation
 
+1. Install Python dependencies:
 ```bash
-# Clone or download this repository
-cd rds-encryption-automation
-
-# Install Python dependencies
 pip install -r requirements.txt
-
-# Make the script executable (optional)
-chmod +x rds_encryption_automation.py
 ```
 
-## Configuration
-
-### 1. Create Configuration File
-
-Copy `databases.json` and update it with your database details:
-
-```json
-{
-  "databases": [
-    {
-      "database": "myapp_production",
-      "publication_name": "myapp_prod_encryption_pub",
-      "slot_name": "myapp_prod_encryption_slot",
-      "source": {
-        "host": "unencrypted-db.xxxxx.us-east-1.rds.amazonaws.com",
-        "port": 5432,
-        "database": "myapp_production",
-        "user": "postgres",
-        "password": "your-password-here"
-      },
-      "target": {
-        "host": "encrypted-db.xxxxx.us-east-1.rds.amazonaws.com",
-        "port": 5432,
-        "database": "myapp_production",
-        "user": "postgres",
-        "password": "your-password-here",
-        "db_identifier": "encrypted-db"
-      },
-      "tables": null
-    }
-  ]
-}
-```
-
-### Configuration Options
-
-- **database**: Database name (for identification)
-- **publication_name**: Name for the publication (auto-generated if not specified)
-- **slot_name**: Name for the replication slot (auto-generated if not specified)
-- **source**: Source (unencrypted) database connection details
-- **target**: Target (encrypted) database connection details
-- **tables**: List of specific tables to replicate, or `null` for all tables
-- **db_identifier**: RDS instance identifier (used for CloudWatch logs)
-
-### 2. Secure Your Credentials
-
-**Important:** Never commit credentials to version control!
-
-Options for securing credentials:
-- Use AWS Secrets Manager and modify the script to fetch credentials
-- Use environment variables
-- Use a separate credentials file with restricted permissions
-- Use AWS IAM database authentication
-
+2. Copy the example environment file and configure it:
 ```bash
-# Set restrictive permissions on config file
-chmod 600 databases.json
+cp .env.example .env
+```
+
+3. Edit `.env` with your database credentials and configuration:
+```bash
+# Replication Database Configuration (where subscriptions will be created)
+REPLICATION_DB_HOST=your-replication-db.region.rds.amazonaws.com
+REPLICATION_DB_PORT=5432
+REPLICATION_DB_USER=root
+REPLICATION_DB_PASSWORD=your-password
+
+# Master Database Configuration (the encrypted database to replicate from)
+MASTER_DB_HOST=testing-replikasi-master.cfkdf7u4lstc.ap-southeast-1.rds.amazonaws.com
+MASTER_DB_PORT=5432
+MASTER_DB_USER=root
+MASTER_DB_PASSWORD=vGrnlMZJUuMzAybb
+
+# LSN from logs (check logs for "Invalid Length" keyword)
+LSN=38E7/403FB58
+
+# Database names (comma-separated, supports special characters)
+DATABASES=airbyte,test-dbmate,db1,db2,db3
 ```
 
 ## Usage
 
-### Complete Migration Workflow
+### Complete Workflow
 
-#### Step 1: Setup Source Database
+Follow these steps in order for the complete RDS encryption workflow:
 
-This creates the publication and replication slot on the unencrypted database.
-
-```bash
-python rds_encryption_automation.py \
-  --config databases.json \
-  --action setup-source
-```
-
-**What it does:**
-- Verifies logical replication is enabled
-- Creates publication for specified tables (or all tables)
-- Creates logical replication slot
-- Verifies the setup
-
-#### Step 2: Create Encrypted Database (Manual AWS Step)
-
-**You must manually perform these AWS operations:**
-
-1. **Create a snapshot** of the source database:
-   ```bash
-   aws rds create-db-snapshot \
-     --db-instance-identifier unencrypted-db \
-     --db-snapshot-identifier unencrypted-db-snapshot
-   ```
-
-2. **Copy the snapshot with encryption**:
-   ```bash
-   aws rds copy-db-snapshot \
-     --source-db-snapshot-identifier unencrypted-db-snapshot \
-     --target-db-snapshot-identifier encrypted-db-snapshot \
-     --kms-key-id your-kms-key-id
-   ```
-
-3. **Restore the encrypted snapshot**:
-   ```bash
-   aws rds restore-db-instance-from-db-snapshot \
-     --db-instance-identifier encrypted-db \
-     --db-snapshot-identifier encrypted-db-snapshot \
-     --db-parameter-group-name your-custom-param-group
-   ```
-
-4. **Wait for the database to be available**
-
-#### Step 3: Setup Target Database
-
-This creates the subscription on the encrypted database and starts replication.
+#### Step 1: Create Publications and Replication Slots (MASTER DB)
 
 ```bash
-python rds_encryption_automation.py \
-  --config databases.json \
-  --action setup-target
+python manage_publications.py create
 ```
 
-**What it does:**
-- Verifies logical replication is enabled
-- Creates subscription (initially disabled)
-- Prompts you to get LSN from logs
-- Advances replication origin to the LSN
-- Enables subscription
-- Verifies replication is working
+This will connect to the **MASTER database** and:
+1. Create a publication for all tables: `{dbname}_pub`
+2. Create a logical replication slot: `{dbname}_slot`
+3. Verify both were created successfully
 
-**Getting the LSN:**
+#### Step 2: Take Snapshot, Copy, and Restore
 
-The script will pause and show instructions for getting the LSN. You can get it via:
+Follow your standard AWS RDS snapshot process (steps 3-5 in FLOW.md).
 
-**Option A: AWS Console**
-1. Go to RDS Console → Your encrypted database
-2. Click "Logs & events" tab
-3. Open the most recent PostgreSQL log
-4. Search for "invalid record length"
-5. Copy the LSN (format: `0/XXXXXXXX`)
-
-**Option B: AWS CLI**
-```bash
-aws logs filter-log-events \
-  --log-group-name /aws/rds/instance/encrypted-db/postgresql \
-  --filter-pattern 'invalid record length'
-```
-
-**Option C: Provide LSN directly**
-```bash
-python rds_encryption_automation.py \
-  --config databases.json \
-  --action setup-target \
-  --lsn 0/20000110
-```
-
-#### Step 4: Verify Replication
-
-Monitor replication status to ensure data is syncing:
+#### Step 3: Create Subscriptions (REPLICATION DB)
 
 ```bash
-python rds_encryption_automation.py \
-  --config databases.json \
-  --action verify
+python manage_subscriptions.py create
 ```
 
-**What it does:**
-- Checks LSN distance between source and target
-- Reports replication lag
-- Confirms when replication is caught up (LSN distance = 0)
+This will connect to the **REPLICATION database** and:
+1. Create a subscription: `{dbname}_sub`
+2. Connect to the MASTER database publication
+3. **Automatically find an unused replication origin**
+4. Advance the replication origin to the specified LSN
+5. Enable the subscription
 
-#### Step 5: Cutover to Encrypted Database (Manual)
+#### Step 4: Delete Subscriptions (REPLICATION DB)
 
-When replication is caught up:
-
-1. **Stop application writes** to the source database
-2. **Verify replication is at LSN distance = 0**
-3. **Update application connection strings** to point to encrypted database
-4. **Restart applications**
-5. **Verify applications are working**
-
-#### Step 6: Cleanup
-
-After successful cutover, clean up the replication:
+When you need to clean up:
 
 ```bash
-python rds_encryption_automation.py \
-  --config databases.json \
-  --action cleanup
+python manage_subscriptions.py delete
 ```
 
-**What it does:**
-- Drops subscription on target database
-- Drops replication slot on source database
-- Drops publication on source database
+This will:
+1. Disable the subscription
+2. Remove the slot from the subscription
+3. Drop the subscription
 
-## Advanced Usage
-
-### Process Single Database
-
-Process only one database from your configuration:
+#### Step 5: Delete Replication Slots and Publications (MASTER DB)
 
 ```bash
-python rds_encryption_automation.py \
-  --config databases.json \
-  --action setup-source \
-  --database myapp_production
+python manage_publications.py delete
 ```
 
-### Replicate Specific Tables
+This will:
+1. Drop the replication slot
+2. Drop the publication
 
-In your configuration, specify tables to replicate:
+### List Resources
 
-```json
-{
-  "database": "customer_db",
-  "tables": ["users", "orders", "payments"]
-}
+List all publications and replication slots:
+
+```bash
+python manage_publications.py list
 ```
 
-### Batch Processing
+List all subscriptions:
 
-The script automatically processes all databases in the configuration file sequentially. Monitor the logs for progress.
-
-## Monitoring and Troubleshooting
-
-### Log Files
-
-The script creates timestamped log files:
-```
-rds_encryption_migration_YYYYMMDD_HHMMSS.log
+```bash
+python manage_subscriptions.py list
 ```
 
-### Common Issues
+## Naming Conventions
 
-#### 1. Logical Replication Not Enabled
+The script automatically handles special characters in database names:
 
-**Error:** `✗ Logical replication is NOT properly configured`
+| Original Database Name | Subscription Name | Publication Name | Slot Name |
+|------------------------|-------------------|------------------|-----------|
+| `airbyte` | `airbyte_sub` | `airbyte_pub` | `airbyte_slot` |
+| `test-dbmate` | `test_dbmate_sub` | `test_dbmate_pub` | `test_dbmate_slot` |
+| `my-db-1` | `my_db_1_sub` | `my_db_1_pub` | `my_db_1_slot` |
+| `my.db.2` | `my_db_2_sub` | `my_db_2_pub` | `my_db_2_slot` |
 
-**Solution:**
-- Ensure `rds.logical_replication = 1` in parameter group
-- Reboot the database instance
-- Wait for instance to be available
+## Configuration Details
 
-#### 2. Connection Timeout
+### Environment Variables
 
-**Error:** `Failed to connect to database`
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `REPLICATION_DB_HOST` | Replication database host (where subscriptions are created) | Yes |
+| `REPLICATION_DB_PORT` | Replication database port | No (default: 5432) |
+| `REPLICATION_DB_USER` | Replication database user | Yes |
+| `REPLICATION_DB_PASSWORD` | Replication database password | Yes |
+| `MASTER_DB_HOST` | Master database host (to replicate from) | Yes |
+| `MASTER_DB_PORT` | Master database port | No (default: 5432) |
+| `MASTER_DB_USER` | Master database user | Yes |
+| `MASTER_DB_PASSWORD` | Master database password | Yes |
+| `LSN` | Log Sequence Number from logs | Yes |
+| `DATABASES` | Comma-separated list of database names | Yes |
 
-**Solution:**
-- Check security group rules
-- Verify network connectivity
-- Confirm database endpoint is correct
-- Check if database is available
+### Finding the LSN
 
-#### 3. Replication Slot Already Exists
+Check your PostgreSQL logs for the "Invalid Length" keyword to find the LSN value. Example:
 
-**Solution:**
-- The script will prompt you to drop and recreate
-- Or manually drop: `SELECT pg_drop_replication_slot('slot_name');`
+```
+2024-10-26 12:34:56 UTC::@:[12345]:LOG: invalid length of startup packet
+LSN: 38E7/403FB58
+```
 
-#### 4. LSN Distance Not Decreasing
+## Subscription Configuration
 
-**Possible causes:**
-- High write activity on source database
-- Network latency
-- Target database performance issues
-
-**Solution:**
-- Wait longer for replication to catch up
-- Check target database performance metrics
-- Consider scaling up target instance temporarily
-
-### Monitoring Queries
-
-Connect to the source database and run:
+The script creates subscriptions with the following settings:
 
 ```sql
--- Check replication slot status
-SELECT 
-    slot_name,
-    slot_type,
-    database,
-    active,
-    confirmed_flush_lsn,
-    pg_current_wal_lsn(),
-    (pg_current_wal_lsn() - confirmed_flush_lsn) AS lsn_distance
-FROM pg_replication_slots
-WHERE slot_type = 'logical';
-
--- Check publication
-SELECT * FROM pg_publication;
-
--- Check replication lag in bytes
-SELECT 
-    slot_name,
-    pg_size_pretty(pg_current_wal_lsn() - confirmed_flush_lsn) AS replication_lag
-FROM pg_replication_slots
-WHERE slot_type = 'logical';
+CREATE SUBSCRIPTION {dbname}_sub
+CONNECTION 'host={master_host} user={master_user} password={master_password} dbname={dbname}'
+PUBLICATION {dbname}_pub
+WITH (
+    copy_data = false,
+    create_slot = false,
+    enabled = false,
+    synchronous_commit = false,
+    connect = true,
+    slot_name = '{dbname}_slot'
+);
 ```
 
-Connect to the target database and run:
+### Publication Configuration
 
+The `manage_publications.py` script creates publications and replication slots on the **MASTER database**:
+
+**Publication:**
 ```sql
--- Check subscription status
-SELECT 
-    subname,
-    subenabled,
-    subslotname
-FROM pg_subscription;
-
--- Check replication origin
-SELECT * FROM pg_replication_origin;
+CREATE PUBLICATION {dbname}_pub FOR ALL TABLES;
 ```
 
-## Security Best Practices
+**Replication Slot:**
+```sql
+SELECT * FROM pg_create_logical_replication_slot('{dbname}_slot', 'pgoutput');
+```
 
-1. **Credentials Management**
-   - Use AWS Secrets Manager for production
-   - Never commit credentials to version control
-   - Use IAM database authentication when possible
+These must be created **before** taking snapshots and creating subscriptions.
 
-2. **Network Security**
-   - Use VPN or bastion host for database access
-   - Restrict security group rules to specific IPs
-   - Use SSL/TLS for database connections
+### Automatic Replication Origin Selection
 
-3. **Audit Logging**
-   - Enable RDS audit logging
-   - Review migration logs regularly
-   - Keep logs for compliance requirements
+The script automatically identifies and uses **unused replication origins** for each subscription:
 
-4. **Access Control**
-   - Use least-privilege database users
-   - Rotate passwords after migration
-   - Review and revoke temporary access
+1. **Query all replication origins:**
+   ```sql
+   SELECT roname FROM pg_replication_origin WHERE roname LIKE 'pg_%';
+   ```
 
-## Performance Considerations
+2. **Query active/used replication origins:**
+   ```sql
+   SELECT o.roname 
+   FROM pg_replication_origin o
+   INNER JOIN pg_replication_origin_status s ON o.roident = s.local_id
+   WHERE o.roname LIKE 'pg_%';
+   ```
 
-### Source Database Impact
+3. **Find unused origins** by comparing the two lists
 
-Logical replication has minimal impact but consider:
-- WAL generation increases (replication slot retains WAL)
-- Monitor disk space on source database
-- Plan for peak hours vs. off-peak migration
+4. **Advance the unused origin** to the specified LSN:
+   ```sql
+   SELECT pg_replication_origin_advance('pg_2457', '0/20000110');
+   ```
 
-### Target Database Performance
+This ensures each subscription gets its own unique, unused replication origin without manual intervention. The script will warn you if no unused origins are available.
 
-- Ensure target instance has adequate resources
-- Consider temporarily scaling up during initial sync
-- Monitor CPU, memory, and I/O metrics
+## Example: Managing 33 Databases
 
-### Network Bandwidth
+Complete workflow for managing 33 databases:
 
-- Large databases may take time for initial sync
-- Monitor network transfer costs
-- Consider using VPC peering for same-region transfers
+1. **Configure your `.env` file with all 33 databases:**
 
-## Rollback Plan
+```bash
+DATABASES=db1,db2,db3,db4,db5,db6,db7,db8,db9,db10,db11,db12,db13,db14,db15,db16,db17,db18,db19,db20,db21,db22,db23,db24,db25,db26,db27,db28,db29,db30,db31,db32,db33
+```
 
-If issues occur during migration:
+2. **Create publications and replication slots on MASTER DB:**
 
-1. **Before cutover:** Simply stop the replication and continue using source database
-2. **After cutover:** You still have the source database as backup
-3. **Emergency rollback:** Update connection strings back to source database
+```bash
+python manage_publications.py create
+```
 
-## Cost Optimization
+3. **Take snapshot, copy to encrypted storage, and restore** (manual AWS steps)
 
-- Delete snapshots after successful migration
-- Terminate source database after verification period
-- Monitor replication slot disk usage
-- Clean up CloudWatch logs
+4. **Create subscriptions on REPLICATION DB:**
 
-## Support and Contribution
+```bash
+python manage_subscriptions.py create
+```
 
-For issues or improvements:
-1. Check the troubleshooting section
-2. Review AWS documentation
-3. Check PostgreSQL logical replication docs
-4. Open an issue with detailed logs
+5. **Monitor the output for any errors**
+
+6. **When ready to clean up, delete subscriptions:**
+
+```bash
+python manage_subscriptions.py delete
+```
+
+7. **Delete replication slots and publications:**
+
+```bash
+python manage_publications.py delete
+```
+
+## Troubleshooting
+
+### Connection Issues
+
+If you encounter connection issues:
+- Verify database credentials in `.env`
+- Check network connectivity to both source and target databases
+- Ensure security groups/firewalls allow connections
+- Verify the database user has appropriate permissions
+
+### Permission Requirements
+
+**For MASTER database** (publications and replication slots):
+- `CREATE` on the database
+- `REPLICATION` role attribute
+- Superuser or `rds_replication` role (for RDS)
+
+**For REPLICATION database** (subscriptions):
+- `CREATE` on the database
+- `REPLICATION` role attribute
+- Access to `pg_replication_origin` system catalog
+
+### Resource Already Exists
+
+If a publication, replication slot, or subscription already exists, the script will skip it and continue with the next database.
+
+### LSN Issues
+
+If you encounter LSN-related errors:
+- Verify the LSN format is correct (e.g., `38E7/403FB58`)
+- Check that the LSN is from the correct point in time
+- Ensure the replication slot exists on the target database
+
+## Logging
+
+Both scripts provide detailed logging:
+- `INFO`: Normal operation messages
+- `WARNING`: Non-critical issues (e.g., resource already exists)
+- `ERROR`: Critical errors that prevent operation
+
+## Safety Features
+
+- Validates all required environment variables before execution
+- Checks if resources already exist before creating
+- Provides detailed error messages for troubleshooting
+- Uses parameterized queries to prevent SQL injection
+- Automatic connection cleanup
+- Separate scripts for MASTER and REPLICATION operations
+
+## Scripts Overview
+
+| Script | Purpose | Target Database | Operations |
+|--------|---------|-----------------|------------|
+| `manage_publications.py` | Manage publications and replication slots | MASTER DB | create, delete, list |
+| `manage_subscriptions.py` | Manage subscriptions | REPLICATION DB | create, delete, list |
+
+## Related Files
+
+- `FLOW.md` - Manual workflow documentation
+- `manage_publications.py` - Automate publications and replication slots (MASTER DB)
+- `manage_subscriptions.py` - Automate subscriptions (REPLICATION DB)
+- `.env` - Configuration file (not tracked in git)
+- `.env.example` - Example configuration template
 
 ## License
 
-This script is provided as-is for automation purposes. Use at your own risk and test thoroughly in non-production environments first.
-
-## References
-
-- [AWS Blog: Encrypt RDS PostgreSQL with minimal downtime](https://aws.amazon.com/blogs/database/encrypt-amazon-rds-for-postgresql-and-amazon-aurora-postgresql-database-with-minimal-downtime/)
-- [PostgreSQL Logical Replication Documentation](https://www.postgresql.org/docs/current/logical-replication.html)
-- [RDS PostgreSQL Logical Replication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html#PostgreSQL.Concepts.General.FeatureSupport.LogicalReplication)
-
-## Changelog
-
-### Version 1.0.0
-- Initial release
-- Support for multiple databases
-- Publication and subscription automation
-- Verification and cleanup features
-- Comprehensive logging
+MIT
