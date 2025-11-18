@@ -111,7 +111,7 @@ def create_subscription(
             return False
         
         # Create subscription
-        connection_string = f"host={master_host} user={master_user} password={master_password} dbname={dbname}"
+        connection_string = f"host={master_host} user={master_user} password={master_password} dbname={dbname} port={master_port}"
         
         create_sub_query = f"""
         CREATE SUBSCRIPTION {subscription_name}
