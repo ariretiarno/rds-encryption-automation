@@ -76,6 +76,7 @@ def create_subscription(
     master_host: str,
     master_user: str,
     master_password: str,
+    master_port: str,
     lsn: str
 ) -> bool:
     """
@@ -87,6 +88,7 @@ def create_subscription(
         master_host: Master database host
         master_user: Master database user
         master_password: Master database password
+        master_port: Master database port
         lsn: Log Sequence Number
         
     Returns:
@@ -321,7 +323,7 @@ def main():
             )
             
             if action == 'create':
-                if create_subscription(conn, dbname, master_host, master_user, master_password, lsn):
+                if create_subscription(conn, dbname, master_host, master_user, master_password, master_port, lsn):
                     success_count += 1
                 else:
                     failure_count += 1
