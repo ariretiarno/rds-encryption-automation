@@ -301,6 +301,29 @@ If you encounter LSN-related errors:
 - Check that the LSN is from the correct point in time
 - Ensure the replication slot exists on the target database
 
+### Replication Conflicts
+
+If you encounter duplicate key violations during replication:
+
+```
+ERROR:  duplicate key value violates unique constraint "uk_spaces_space_name"
+DETAIL:  Key (space_name)=(*) already exists.
+```
+
+**Quick Fix:**
+```bash
+# Check the conflict
+python fix_replication_conflict.py <database_name> status
+
+# Delete the conflicting row
+python fix_replication_conflict.py <database_name> delete_conflict
+
+# Enable the subscription
+python fix_replication_conflict.py <database_name> enable
+```
+
+**See detailed guide:** `REPLICATION_CONFLICT_GUIDE.md` or `QUICK_FIX.md`
+
 ## Logging
 
 Both scripts provide detailed logging:
@@ -323,12 +346,16 @@ Both scripts provide detailed logging:
 |--------|---------|-----------------|------------|
 | `manage_publications.py` | Manage publications and replication slots | MASTER DB | create, delete, list |
 | `manage_subscriptions.py` | Manage subscriptions | REPLICATION DB | create, delete, list |
+| `fix_replication_conflict.py` | Fix replication conflicts | REPLICATION DB | status, delete_conflict, advance_lsn, enable |
 
 ## Related Files
 
 - `FLOW.md` - Manual workflow documentation
 - `manage_publications.py` - Automate publications and replication slots (MASTER DB)
 - `manage_subscriptions.py` - Automate subscriptions (REPLICATION DB)
+- `fix_replication_conflict.py` - Fix replication conflicts (REPLICATION DB)
+- `REPLICATION_CONFLICT_GUIDE.md` - Detailed conflict resolution guide
+- `QUICK_FIX.md` - Quick reference for fixing conflicts
 - `.env` - Configuration file (not tracked in git)
 - `.env.example` - Example configuration template
 

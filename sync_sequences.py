@@ -57,36 +57,45 @@ def get_sequences_from_master(master_conn, dbname: str) -> List[Dict]:
         cursor = master_conn.cursor()
         
         # Get all sequences with their current values
+        # Note: pg_sequences view doesn't include is_called, so we query sequences directly
         cursor.execute("""
             SELECT 
-                schemaname,
-                sequencename,
-                last_value,
-                start_value,
-                increment_by,
-                max_value,
-                min_value,
-                cache_size,
-                cycle,
-                is_called
-            FROM pg_sequences
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY schemaname, sequencename
+                n.nspname as schemaname,
+                c.relname as sequencename,
+                COALESCE(s.seqstart, 1) as start_value,
+                COALESCE(s.seqincrement, 1) as increment_by,
+                COALESCE(s.seqmax, 9223372036854775807) as max_value,
+                COALESCE(s.seqmin, 1) as min_value,
+                COALESCE(s.seqcache, 1) as cache_size,
+                COALESCE(s.seqcycle, false) as cycle
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_sequence s ON s.seqrelid = c.oid
+            WHERE c.relkind = 'S'
+            AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY n.nspname, c.relname
         """)
         
         sequences = []
         for row in cursor.fetchall():
+            schema = row[0]
+            seq_name = row[1]
+            
+            # Get last_value and is_called by querying the sequence directly
+            cursor.execute(f'SELECT last_value, is_called FROM "{schema}"."{seq_name}"')
+            seq_data = cursor.fetchone()
+            
             sequences.append({
-                'schema': row[0],
-                'name': row[1],
-                'last_value': row[2],
-                'start_value': row[3],
-                'increment_by': row[4],
-                'max_value': row[5],
-                'min_value': row[6],
-                'cache_size': row[7],
-                'cycle': row[8],
-                'is_called': row[9]
+                'schema': schema,
+                'name': seq_name,
+                'last_value': seq_data[0],
+                'start_value': row[2],
+                'increment_by': row[3],
+                'max_value': row[4],
+                'min_value': row[5],
+                'cache_size': row[6],
+                'cycle': row[7],
+                'is_called': seq_data[1]
             })
         
         cursor.close()
@@ -107,25 +116,33 @@ def get_sequences_from_replica(replica_conn, dbname: str) -> Dict[str, Dict]:
     try:
         cursor = replica_conn.cursor()
         
+        # Get all sequences
         cursor.execute("""
             SELECT 
-                schemaname,
-                sequencename,
-                last_value,
-                is_called
-            FROM pg_sequences
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY schemaname, sequencename
+                n.nspname as schemaname,
+                c.relname as sequencename
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'S'
+            AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY n.nspname, c.relname
         """)
         
         sequences = {}
         for row in cursor.fetchall():
-            full_name = f"{row[0]}.{row[1]}"
+            schema = row[0]
+            seq_name = row[1]
+            full_name = f"{schema}.{seq_name}"
+            
+            # Get last_value and is_called by querying the sequence directly
+            cursor.execute(f'SELECT last_value, is_called FROM "{schema}"."{seq_name}"')
+            seq_data = cursor.fetchone()
+            
             sequences[full_name] = {
-                'schema': row[0],
-                'name': row[1],
-                'last_value': row[2],
-                'is_called': row[3]
+                'schema': schema,
+                'name': seq_name,
+                'last_value': seq_data[0],
+                'is_called': seq_data[1]
             }
         
         cursor.close()
